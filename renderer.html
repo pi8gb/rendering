@@ -1,0 +1,127 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cube Renderer</title>
+<style>
+body {
+  margin: 0;
+  background: #222;
+  color: white;
+  font-family: sans-serif;
+  text-align: center;
+}
+canvas {
+  width: 90vw;
+  max-height: 70vh;
+}
+</style>
+</head>
+<body>
+<h2>My Cube Animation</h2>
+<input type="file" id="file" accept=".glb">
+<button id="record" disabled>Render Video</button>
+<p id="status">Choose your cube.glb file.</p>
+<div id="scene"></div>
+
+<script type="module">
+import * as THREE from
+'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+import { GLTFLoader } from
+'https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/GLTFLoader.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcccccc);
+
+const camera = new THREE.PerspectiveCamera(45, 16/9, 0.1, 1000);
+camera.position.set(4, 3, 6);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({antialias: true});
+renderer.setSize(960, 540);
+document.querySelector('#scene').appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x555555, 2));
+const light = new THREE.DirectionalLight(0xffffff, 2);
+light.position.set(3, 5, 4);
+scene.add(light);
+
+let mixer;
+let clips = [];
+
+document.querySelector('#file').onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  document.querySelector('#status').textContent = 'Loading...';
+
+  try {
+    const url = URL.createObjectURL(file);
+    const loader = new GLTFLoader();
+    const gltf = await loader.loadAsync(url);
+
+    scene.add(gltf.scene);
+    clips = gltf.animations;
+    mixer = new THREE.AnimationMixer(gltf.scene);
+
+    clips.forEach(clip => mixer.clipAction(clip).play());
+
+    document.querySelector('#status').textContent =
+      `Loaded! Animation clips: ${clips.length}`;
+
+    document.querySelector('#record').disabled = !clips.length;
+  } catch (error) {
+    console.error(error);
+    document.querySelector('#status').textContent =
+      'Could not load the model. Check the browser console.';
+  }
+};
+
+document.querySelector('#record').onclick = () => {
+  if (!mixer) return;
+
+  mixer.stopAllAction();
+  clips.forEach(clip => mixer.clipAction(clip).reset().play());
+  mixer.setTime(0);
+
+  const stream = renderer.domElement.captureStream(30);
+  const recorder = new MediaRecorder(stream);
+  const chunks = [];
+
+  recorder.ondataavailable = e => chunks.push(e.data);
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, {type: 'video/webm'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'cube-animation.webm';
+    a.click();
+    stream.getTracks().forEach(t => t.stop());
+  };
+
+  recorder.start();
+  const start = performance.now();
+
+  function renderFrame(now) {
+    const elapsed = (now - start) / 1000;
+    mixer.setTime(elapsed);
+    renderer.render(scene, camera);
+
+    if (elapsed >= 23) {
+      recorder.stop();
+      return;
+    }
+    requestAnimationFrame(renderFrame);
+  }
+
+  requestAnimationFrame(renderFrame);
+};
+
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
